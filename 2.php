@@ -123,6 +123,125 @@ function importXml($a)
     $mysql->query($sql4);
 }
 
+function exportXml($a, $b)
+{
+    $mysqli = new mysqli("127.0.0.1", "root", "root", "test_samson");
+    $query = "SELECT product.code as 'Код', product.name as 'Название',
+                    price.price as 'Цена', price.price_type,
+                    prop.name, prop.value, prop.unit,
+                    category.name as 'Раздел'
+            FROM a_product as product
+            JOIN a_price as price on product.id = price.product_id
+            JOIN a_property as prop on product.id = prop.product_id
+            JOIN a_category as category on product.id = category.product_id
+                WHERE category.code in (
+                SELECT head_category_code as code
+                FROM dependence_categories
+                WHERE head_category_code = 6883
+                union
+                SELECT adjective_category_code as code
+                FROM dependence_categories
+                WHERE head_category_code = 6883
+                )";
+    $dom = new DOMDocument( '1.0', 'utf-8' );
+    $dom->formatOutput = True;
+    $root = $dom->createElement('Товары');
+    $dom->appendChild($root);
+    $result = $mysqli->query($query);
+    echo "<br/>";
+    $root_element = "Товары";
+    $xml = new SimpleXMLElement("<?xml version=\"1.0\" encoding=\"UTF-8\" ?><{$root_element}></{$root_element}>");
+    while($result_array = $result->fetch_assoc()){
+        $productMB = checkProductExist($xml, $result_array['Код']);
+        $product = $productMB;
+        if (!$productMB) {
+            $product = $xml->addChild("Товар");
+            $product->addChild("Цена");
+            $product->addChild("Цена");
+        }
+        foreach($result_array as $key => $value)
+        {
+            var_dump("result_array", $result_array, 'key', $key, 'value', $value);
+            switch ($key) {
+                case 'Код':
+                case 'Название':
+                    if (!$product->attributes()[$key]) {
+                        $product->addAttribute($key, $value);
+                    }
+                    break;
+                case 'price_type':
+                    $elem = getElemOrNull($product->{'Цена'}, true, $result_array['Цена']);
+                    if (!is_null($elem) && !$elem->attributes()["Тип"]){
+                        $elem->addAttribute("Тип", $value);
+                    }
+                    break;
+
+                case 'name':
+                    $elem = getElemOrNull($product->children(), 'Свойства', true);
+                    if (is_null($elem)){
+                        $product->addChild("Свойства");
+                    }
+                    $elem = getElemOrNull($product->{'Свойства'}->children(), $value, true);
+                    if (is_null($elem)){
+                        $product->{'Свойства'}->addChild($value);
+                    }
+                    break;
+                case 'value':
+                    $isset = false;
+                    foreach ($product->{'Свойства'}->children() as $k => $v) {
+                        $isset = (((string)$result_array['name'] === $k) && ($value !== $v))? true : $isset;
+                    }
+                    if ($isset) {
+                        $product->{'Свойства'}->{$result_array['name']} = $value;
+                    }
+                    break;
+                case 'unit':
+                    if ($value !== 'null') {
+                        try {
+                            $elem = getElemOrNull($product->{'Свойства'}->children(), $result_array['name'], true);
+                            if (!is_null($elem)) {
+                                $elem->addAttribute("ЕдИзм", $value);
+                            } else {
+                                throw new Exception('Неверный атрибут "ЕдИзм"');
+                            }
+                        } catch (Exception $e) {
+                            echo $e->getMessage();
+                        }
+                    }
+                    break;
+                case 'Раздел':
+                    $elem = getElemOrNull($product->children(), 'Разделы', true);
+                    if (is_null($elem)){
+                        $product->addChild("Разделы");
+                    }
+                    $elem = getElemOrNull($product->{'Разделы'}->children(), true, $value);
+                    if (is_null($elem)){
+                        $product->{'Разделы'}->addChild('Раздел', $value);
+                    }
+                    break;
+                case 'Цена':
+                    $arr = $product->children()->{'Цена'};
+                    $filledArray = [];
+                    $count = count($arr);
+                    for ($i = 0; $i < $count; $i++) {
+                        if (!empty($arr[$i])) {
+                            array_push($filledArray, $arr[$i]);
+                        } else {
+                            if (array_search($value, $filledArray) === false) {
+                                $arr[$i] = $value;
+                            }
+                            break;
+                        }
+                    }
+                    break;
+            }
+        }
+    }
+    $dom = dom_import_simplexml($xml)->ownerDocument;
+    $dom->preserveWhiteSpace = false;
+    $dom->formatOutput = true;
+    $dom->save($a);
+}
 
 echo '<pre>';
 
